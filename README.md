@@ -50,7 +50,7 @@ Podés ejecutar este programa como vos quieras, pero si querés compilarlo, te r
 
 1. Si no lo tenés instalado, podés hacerlo con: `pip install pyinstaller`.
 
-2. En la carpeta con los archivos `.py` del repositorio, ejecutás el comando `pyinstaller --onefile image_cypher.py`. Empezará a analizar el código del programa para compilarlo.
+2. En la carpeta del repositorio, ejecutás el comando `pyinstaller --onefile ./src/image_cypher.py` (versión de Windows). Empezará a analizar el código del programa para compilarlo.
 
 3. Luego de un breve tiempo, tendrás una nueva carpeta `dist/` donde estará el ejecutable para usarlo.
 
