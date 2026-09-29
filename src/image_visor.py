@@ -27,23 +27,27 @@ import numpy as np
 class Application(tk.Frame):
     ZOOM_MAX = 100.0
 
-    def __init__(self, datosImagen, nombreVentana: str | None = None, master = tk.Tk()):
-        super().__init__(master)
+    def __init__(self, datosImagen, nombreVentana: str | None = None, master: tk.Tk | None = None):
+        if master is None:
+            master = tk.Tk()
 
-        self.master.geometry("1024x576")
+        super().__init__(master)
+        self._master: tk.Tk = master
+
+        self._master.geometry("1024x576")
 
         self.imagenPIL = None
         self.titulo = nombreVentana if not nombreVentana == None else "Visor de imágenes"
         self.__old_evento = None        # inicializado para evitar AttributeError
         self._redimensionado = None     # job de debounce para el resize
 
-        self.master.title(self.titulo)
+        self._master.title(self.titulo)
 
         self.crear_widget()
         self.reiniciar_transformacion()
 
         # Si se pasa un path, se carga después de que la ventana esté lista
-        self.master.after(50, lambda: self.set_imagen(datosImagen))
+        self._master.after(50, lambda: self.set_imagen(datosImagen))
 
     # --------------------------------------------------------------------------------
     # Widgets
@@ -61,15 +65,22 @@ class Application(tk.Frame):
         barraEstado.pack(side = tk.BOTTOM, fill = tk.X)
 
         # canvas
-        self.canvas = tk.Canvas(self.master, background = "black")
+        self.canvas = tk.Canvas(self.master, background = "black", highlightthickness = 0, bd = 0)
         self.canvas.pack(expand = True, fill = tk.BOTH)
+        self._item_imagen = self.canvas.create_image(0, 0, anchor = "nw")   # se actualiza con itemconfig en vez de crear uno nuevo en cada redibujado
 
-        # eventoos del mouse
-        self.master.bind("<Button-1>", self.mouse_clickear)
-        self.master.bind("<B1-Motion>", self.mouse_arrastrar)
-        self.master.bind("<Motion>", self.mouse_mover)
-        self.master.bind("<Double-Button-1>", self.mouse_doble_click)
-        self.master.bind("<MouseWheel>", self.mouse_rueda)
+        # eventos del mouse
+        self.canvas.bind("<Button-1>", self.mouse_clickear)
+        self.canvas.bind("<B1-Motion>", self.mouse_arrastrar)
+        self.canvas.bind("<Motion>", self.mouse_mover)
+        self.canvas.bind("<Double-Button-1>", self.mouse_doble_click)
+
+        self.master.bind("<MouseWheel>", self.mouse_rueda)  # para windows/macOS
+
+        # compatibilidad con x11 para sistemas Linux
+        if self.master.tk.call("tk", "windowingsystem") == "x11":
+            self.master.bind("<Button-4>", self.mouse_rueda)    # rueda arriba
+            self.master.bind("<Button-5>", self.mouse_rueda)    # rueda abajo
 
         # resize responsivo: re-fit cuando cambia el tamaño del canvas
         self.canvas.bind("<Configure>", self.ajustar_canvas)
@@ -79,16 +90,34 @@ class Application(tk.Frame):
         if not archivo:
             return
         
-        self.imagenPIL = Image.open(archivo)
-
-        self.arreglar_zoom(self.imagenPIL.width, self.imagenPIL.height)
-        self.dibujar_imagen(self.imagenPIL)
+        imagen = Image.open(archivo)
+        imagen.load()
 
         self.texto_infoImagen["text"] = (
-            f"{self.imagenPIL.format} : "
-            f"{self.imagenPIL.width} x {self.imagenPIL.height} "
-            f"{self.imagenPIL.mode}"
+            f"{imagen.format} : "
+            f"{imagen.width} x {imagen.height} "
+            f"{imagen.mode}"
         )
+
+        # corrección de tk.PhotoImage por tema de color
+        if imagen.mode not in ("1", "L", "RGB", "RGBA"):
+            tieneAlfa = imagen.mode in ("LA", "PA", "RGBa", "La") or "transparency" in imagen.info
+            imagen = imagen.convert("RGBA" if tieneAlfa else "RGB")
+
+        self.imagenPIL = imagen
+        self._ajustar_ventana()
+
+
+    def _ajustar_ventana(self):
+        if self.imagenPIL is None:
+            return
+
+        if self.canvas.winfo_width() <= 1 or self.canvas.winfo_height() <= 1:
+            self._master.after(20, self._ajustar_ventana)
+            return
+
+        self.arreglar_zoom(self.imagenPIL.width, self.imagenPIL.height)
+        self.redibujar_imagen()
 
     # --------------------------------------------------------------------------------
     # eventos del mouse
@@ -133,10 +162,21 @@ class Application(tk.Frame):
         if self.imagenPIL is None:
             return
         
-        if evento.delta < 0:
-            self.escalar_a(0.8, evento.x, evento.y)     # acercar
+        # coordenadas relativas al canvas
+        x = evento.x_root - self.canvas.winfo_rootx()
+        y = evento.y_root - self.canvas.winfo_rooty()
+
+        if not (0 <= x < self.canvas.winfo_width() and 0 <= y < self.canvas.winfo_height()):
+            # el puntero no está sobre la imagen
+            return 
+
+        # windows/macos usan evento.delta, X11 usa Button-4 y Button-5
+        if evento.num == 5 or (evento.num not in (4, 5) and evento.delta < 0):
+            self.escalar_a(0.8, x, y)   # aleja
+        elif evento.num == 4 or evento.delta > 0:
+            self.escalar_a(1.25, x, y)  # acerca
         else:
-            self.escalar_a(1.25,  evento.x, evento.y)   # alejar
+            return
 
         self.redibujar_imagen()
 
@@ -331,6 +371,9 @@ class Application(tk.Frame):
         anchuraCanvas  = self.canvas.winfo_width()
         alturaCanvas = self.canvas.winfo_height()
 
+        if anchuraCanvas <= 1 or alturaCanvas <= 1:
+            return
+
         mat_inv = np.linalg.inv(self.mat_affine)
 
         affine_inv = (
@@ -340,13 +383,13 @@ class Application(tk.Frame):
 
         dst = self.imagenPIL.transform(
             (anchuraCanvas, alturaCanvas),
-            Image.AFFINE,
+            Image.Transform.AFFINE,
             affine_inv,
-            Image.NEAREST,
+            Image.Resampling.NEAREST,
         )
 
         im = ImageTk.PhotoImage(image = dst)
-        self.canvas.create_image(0, 0, anchor = "nw", image = im)
+        self.canvas.itemconfig(self._item_imagen, image = im)
         self.image = im     # evitar que el GC elimine la referencia
 
 
