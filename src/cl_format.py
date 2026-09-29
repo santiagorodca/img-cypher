@@ -7,7 +7,7 @@ import textwrap
 # -----------------------------------------------------------------------------
 # CONSTANTES DE CONFIGURACIÓN
 
-__VERSION__ = "1.0"
+__VERSION__ = "1.1"
 
 
 # -----------------------------------------------------------------------------
@@ -45,7 +45,7 @@ def _envolver(mensaje: str, indent: str) -> str:
 # -----------------------------------------------------------------------------
 # TITULO
 
-def mostrar_titulo(titulo: str, version: str = None) -> None:
+def mostrar_titulo(titulo: str, version: str = "") -> None:
     """
     Imprime el titulo/encabezado del programa.
  
@@ -57,7 +57,7 @@ def mostrar_titulo(titulo: str, version: str = None) -> None:
  
     linea = f"// {titulo.upper().strip()}"
 
-    if version is not None:
+    if len(version) != 0:
         linea += f", v{str(version).strip()}"
 
     print(f"\n{linea}\n")
