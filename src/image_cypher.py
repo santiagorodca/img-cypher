@@ -101,7 +101,8 @@ def desencriptar_imagen(contrasena: str):
             datosDesencriptados = AESGCM(clave).decrypt(nonce, imagenEntrada.read(), encabezado)
         except Exception:
             cl.mostrar_error("No se pudo desencriptar la imagen. Es posible que la contraseña sea incorrecta o que los datos hallan sido alterados.")
-        imagenEntrada.close()
+            imagenEntrada.close()
+            return
 
     # resuelve la compresión del archivo
     if enxiComprimido == b"1":
@@ -113,10 +114,11 @@ def desencriptar_imagen(contrasena: str):
         
         with Image.open(BytesIO(datosDesencriptados)) as img:
             try:
-                formato = img.format
+                formato = str(img.format)
             except Image.UnidentifiedImageError as eUIE:
                 cl.mostrar_error(f"Hubo un error al abrir la imagen guardada y obtener sus datos: {eUIE}")
-            img.close()
+                img.close()
+                return
 
         rutaSalida = RUTA_ENTRADA.parent.joinpath(RUTA_ENTRADA.stem + "." + formato.lower())
 
@@ -135,15 +137,18 @@ def desencriptar_imagen(contrasena: str):
 
         image_visor.Application(BytesIO(datosDesencriptados), "Visor de imágenes cifradas").mainloop()
     except Exception as eE:
-        cl.mostrar_error("Hubo un error al cargar la imagen: " + eE)
+        cl.mostrar_error(f"Hubo un error al cargar la imagen: {eE}")
 
     # se sale del programa =)
     exit(0)
 
 
-def extraer_datos_basicos_imagen(sufijoArchivo: str) -> tuple[bool, bool | None]:     # bools: esFormatoEnxi, estaComprimido
+def extraer_datos_basicos_imagen(sufijoArchivo: str) -> tuple[bool, bool]:     # bools: esFormatoEnxi, estaComprimido
     # PIL v12.1.1
     # Abre la imagen y extrae información como la firma y la info
+    formatoImagen = None
+    info = {}
+
     if sufijoArchivo in ".enxi":
         with open(RUTA_ENTRADA, "rb") as enxiImg:
             formatoImagen = enxiImg.read(4)
@@ -153,7 +158,12 @@ def extraer_datos_basicos_imagen(sufijoArchivo: str) -> tuple[bool, bool | None]
         with Image.open(RUTA_ENTRADA) as img:
             try:
                 info = img.info
-                formatoImagen = img.format
+                formatoImagen = str(img.format)
+
+                # verificamos si la imagen es un tiff y sacamos los datos de acá
+                if formatoImagen == "TIFF":
+                    comp = getattr(img, "tag_v2", {}).get(259, 1)
+                    estaComprimido = comp != 1  # 1 = sin compresión
             except Exception as eE:
                 cl.mostrar_error(f"Hubo un error al abrir la imagen y obtener sus datos: {eE}")
             img.close()
@@ -161,7 +171,7 @@ def extraer_datos_basicos_imagen(sufijoArchivo: str) -> tuple[bool, bool | None]
     # con los datos obtenidos, verificamos si la imagen tiene nuestra firma
     # si es así, retorna los datos obtenidos
     if formatoImagen == _FIRMA:
-        return True, None
+        return True, False
 
     # si no tiene nuestra firma, pasamos a verificar todos los formatos
     # compatibles con PIL. en este caso, verificamos que el archivo SEA una
@@ -177,18 +187,14 @@ def extraer_datos_basicos_imagen(sufijoArchivo: str) -> tuple[bool, bool | None]
     # como último caso, revisamos cada formato donde puede ser comprimido
     estaComprimido = False
 
-    if formatoImagen in ("TIFF"):
-        comp = getattr(img, "tag_v2", {}).get(259, 1)
-        estaComprimido = comp != 1  # 1 = sin compresión
-
     if formatoImagen in ("BMP", "DIB"):
         estaComprimido = info.get("compression", 0) != 0
 
-    if formatoImagen in ("SGI"):
+    if formatoImagen == "SGI":
         estaComprimido = bool(info.get("rle", False))
 
     # TGA y RAS requieren leer el header binario
-    if formatoImagen in ("TGA"):
+    if formatoImagen == "TGA":
         with open(RUTA_ENTRADA, "rb") as f:
             f.seek(2)
             estaComprimido = f.read(1)[0] in (9, 10, 11)
