@@ -3,3 +3,4 @@ __pycache__/
 build/
 dist/
 image_cypher.spec
+src/*.old
