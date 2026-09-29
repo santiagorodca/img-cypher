@@ -15,6 +15,7 @@
 
 
 import tkinter as tk
+import PIL._tkinter_finder  # sin esto pyinstaller no lo importa
 from PIL import Image, ImageTk
 from math import sqrt
 from sys import argv
